@@ -1,9 +1,7 @@
 import React from 'react';
 
 /**
- * Human investigator brief rendered when a dispute is escalated.
- * Summarizes findings, highlights strongest/weakest evidence,
- * flags missing evidence categories, and provides an actionable recommendation.
+ * Clean, modern human investigator brief for escalated disputes.
  *
  * @param {{
  *   brief: {
@@ -19,45 +17,35 @@ export default function EscalationBrief({ brief }) {
   if (!brief) return null;
 
   return (
-    <div className="escalation-brief-card" role="region" aria-label="Human Review Brief">
+    <div className="escalation-brief-inner" role="region" aria-label="Human Review Brief">
       <div className="brief-header">
-        <span className="brief-badge">Human Review Required</span>
-        <h3 className="brief-title">Escalation Investigation Brief</h3>
+        <span className="badge-alert">Escalation Triggered</span>
+        <h3 className="brief-title">Human Review Brief</h3>
       </div>
 
       <p className="brief-summary">{brief.summary}</p>
 
-      <div className="brief-grid">
-        <div className="brief-col">
-          <h4 className="brief-subheading">Strongest Evidence</h4>
-          <p className="brief-item positive">
-            {brief.strongestEvidence || 'None available'}
-          </p>
-
-          <h4 className="brief-subheading">Weakest / Conflicting Evidence</h4>
-          <p className="brief-item negative">
-            {brief.weakestEvidence || 'None flagged'}
-          </p>
+      <div className="brief-cards-grid">
+        <div className="brief-box">
+          <span className="brief-kicker">Key Evidence Factors</span>
+          <div className="brief-evidence-row">
+            <span className="factor-label mu">Strongest:</span>
+            <span className="factor-val text-teal">{brief.strongestEvidence || 'None'}</span>
+          </div>
+          <div className="brief-evidence-row">
+            <span className="factor-label mu">Weakest:</span>
+            <span className="factor-val text-orange">{brief.weakestEvidence || 'None'}</span>
+          </div>
         </div>
 
-        <div className="brief-col">
-          <h4 className="brief-subheading">Missing Recommended Evidence</h4>
-          {brief.missingEvidence && brief.missingEvidence.length > 0 ? (
-            <ul className="brief-missing-list">
-              {brief.missingEvidence.map((type) => (
-                <li key={type} className="mono">
-                  • {type}
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p className="brief-item">All standard evidence types present.</p>
+        <div className="brief-box">
+          <span className="brief-kicker">Recommended Action</span>
+          <p className="brief-recommendation-text">{brief.recommendedAction}</p>
+          {brief.missingEvidence && brief.missingEvidence.length > 0 && (
+            <div className="brief-missing-hint mu">
+              Missing evidence: {brief.missingEvidence.join(', ')}
+            </div>
           )}
-
-          <h4 className="brief-subheading">Recommended Human Action</h4>
-          <p className="brief-recommendation">
-            👉 {brief.recommendedAction}
-          </p>
         </div>
       </div>
     </div>

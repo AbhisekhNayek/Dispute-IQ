@@ -2,12 +2,8 @@ import React from 'react';
 import { money, decide, net } from '../logic.js';
 
 /**
- * Backtest simulation comparing DisputeIQ's agentic policy against simple baseline strategies.
- *
- * Baseline strategies:
- * 1. "Always accept" (concede all disputes)
- * 2. "Always challenge" (fight every dispute regardless of probability or cost)
- * 3. "DisputeIQ" (intelligent risk-adjusted policy)
+ * Clean, modern Backtest simulation panel.
+ * Compares DisputeIQ's agentic policy against baseline strategies.
  *
  * @param {{ disputes: Array, policy: Object }} props
  */
@@ -35,11 +31,11 @@ export default function BacktestPanel({ disputes = [], policy }) {
       description: 'Fight every dispute blindly',
     },
     {
-      name: 'DisputeIQ',
+      name: 'DisputeIQ (Agentic)',
       value: sumNet((item) =>
         net(item.dispute, item.decision.out.toLowerCase(), policy)
       ),
-      description: 'Expected-value thresholding with safety margin',
+      description: 'Dynamic expected-value thresholding',
     },
   ];
 
@@ -47,53 +43,67 @@ export default function BacktestPanel({ disputes = [], policy }) {
   const bestValue = Math.max(...strategies.map((s) => s.value));
 
   return (
-    <section className="card bt" aria-labelledby="backtest-heading">
-      <div className="section-header">
-        <h2 id="backtest-heading">Backtest: Net Financial Outcome vs. Baselines</h2>
-      </div>
+    <div className="backtest-view">
+      <section className="card">
+        <div className="section-header">
+          <div>
+            <h2 className="card-title">Portfolio Backtest Comparison</h2>
+            <span className="mu card-subtitle">
+              Net financial return across {autoDecided.length} automated disputes
+              {escalatedCount > 0 && ` (${escalatedCount} escalated excluded)`}
+            </span>
+          </div>
+        </div>
 
-      <div className="backtest-strategies">
-        {strategies.map((strategy) => {
-          const isBest = strategy.value === bestValue;
-          const barWidthPercent = Math.min(
-            100,
-            Math.max(4, (Math.abs(strategy.value) / maxVal) * 100)
-          );
-          const barColor =
-            strategy.name === 'DisputeIQ'
-              ? 'var(--tl)'
-              : strategy.value >= 0
-              ? 'var(--gr)'
-              : 'var(--mu)';
+        <div className="backtest-cards-grid">
+          {strategies.map((strat) => {
+            const isBest = strat.value === bestValue;
+            const barWidth = Math.min(
+              100,
+              Math.max(5, (Math.abs(strat.value) / maxVal) * 100)
+            );
+            const isDisputeIQ = strat.name.includes('DisputeIQ');
 
-          return (
-            <div className="backtest-row" key={strategy.name}>
-              <div className="r">
-                <span className="strategy-name">
-                  <strong>{strategy.name}</strong>
-                  {isBest && <span className="chip chip-best">Optimal</span>}
-                </span>
-                <span className="mono strategy-value">{money(strategy.value)}</span>
-              </div>
+            return (
               <div
-                className="bar"
-                role="progressbar"
-                aria-valuenow={strategy.value}
-                aria-label={`${strategy.name} net outcome: ${money(strategy.value)}`}
+                className={`backtest-card ${isBest ? 'is-best' : ''}`}
+                key={strat.name}
               >
-                <i style={{ width: `${barWidthPercent}%`, background: barColor }} />
-              </div>
-            </div>
-          );
-        })}
-      </div>
+                <div className="backtest-card-top">
+                  <div className="strategy-info">
+                    <span className="strategy-title">{strat.name}</span>
+                    <span className="mu strategy-desc">{strat.description}</span>
+                  </div>
+                  {isBest && <span className="best-tag">Optimal</span>}
+                </div>
 
-      <p className="note">
-        Evaluated across the <strong>{autoDecided.length}</strong> dispute{autoDecided.length === 1 ? '' : 's'} the agent decides automatically.{' '}
-        {escalatedCount > 0 && (
-          <span>({escalatedCount} escalated to a human are excluded from automated backtest.)</span>
-        )}
-      </p>
-    </section>
+                <div className="backtest-card-middle">
+                  <span
+                    className={`mono strategy-return ${
+                      strat.value >= 0 ? 'return-positive' : 'return-negative'
+                    }`}
+                  >
+                    {money(strat.value)}
+                  </span>
+                </div>
+
+                <div className="progress-track" role="progressbar" aria-valuenow={strat.value}>
+                  <div
+                    className={`progress-fill ${
+                      isDisputeIQ ? 'fill-teal' : strat.value >= 0 ? 'fill-green' : 'fill-muted'
+                    }`}
+                    style={{ width: `${barWidth}%` }}
+                  />
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="backtest-footer-note mu">
+          Calculations evaluate financial recovery vs. cost to fight ($ {policy.cost}) based on current policy inputs.
+        </div>
+      </section>
+    </div>
   );
 }

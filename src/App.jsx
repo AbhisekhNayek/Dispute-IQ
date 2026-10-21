@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { DISPUTES } from './data.js';
-import { DEFAULT_POLICY, clampPolicy } from './logic.js';
+import { DEFAULT_POLICY, clampPolicy, decide, flipHint } from './logic.js';
 import { getAdapter, getModeName } from './adapters/index.js';
 
 import DisputeQueue from './components/DisputeQueue.jsx';
 import PolicyPanel from './components/PolicyPanel.jsx';
 import DisputeDetail from './components/DisputeDetail.jsx';
-import AuditLog from './components/AuditLog.jsx';
+import DecisionTrace from './components/DecisionTrace.jsx';
 import BacktestPanel from './components/BacktestPanel.jsx';
+import AuditLog from './components/AuditLog.jsx';
 import Toast from './components/Toast.jsx';
 
 const SESSION_LOG_KEY = 'disputeiq_audit_logs_v1';
@@ -16,6 +17,7 @@ const SESSION_ACTIONED_KEY = 'disputeiq_actioned_v1';
 export default function App() {
   const [policy, setPolicy] = useState(DEFAULT_POLICY);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview' | 'trace' | 'backtest' | 'audit'
 
   // Restore audit log from sessionStorage
   const [auditLogs, setAuditLogs] = useState(() => {
@@ -44,7 +46,7 @@ export default function App() {
     try {
       sessionStorage.setItem(SESSION_LOG_KEY, JSON.stringify(auditLogs));
     } catch {
-      // sessionStorage quota or disabled
+      // ignore
     }
   }, [auditLogs]);
 
@@ -53,7 +55,7 @@ export default function App() {
     try {
       sessionStorage.setItem(SESSION_ACTIONED_KEY, JSON.stringify(actionedDisputes));
     } catch {
-      // sessionStorage quota or disabled
+      // ignore
     }
   }, [actionedDisputes]);
 
@@ -72,7 +74,7 @@ export default function App() {
 
   const handleResetPolicy = useCallback(() => {
     setPolicy(DEFAULT_POLICY);
-    addToast('Policy restored to default risk limits', 'info');
+    addToast('Policy restored to defaults', 'info');
   }, [addToast]);
 
   const handleResetDemo = useCallback(() => {
@@ -86,7 +88,7 @@ export default function App() {
     } catch {
       // ignore
     }
-    addToast('Demo reset: all actions and audit history cleared', 'info');
+    addToast('Demo reset: all actions and logs cleared', 'info');
   }, [addToast]);
 
   const handleClearAuditLog = useCallback(() => {
@@ -96,7 +98,7 @@ export default function App() {
     } catch {
       // ignore
     }
-    addToast('Audit log cleared for this session', 'info');
+    addToast('Audit log cleared', 'info');
   }, [addToast]);
 
   const handleExportAuditLog = useCallback(() => {
@@ -104,19 +106,21 @@ export default function App() {
       addToast('No audit logs to export yet', 'info');
       return;
     }
-    const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(
-      JSON.stringify(
-        {
-          application: 'DisputeIQ',
-          mode: getModeName(),
-          exportedAt: new Date().toISOString(),
-          activePolicy: policy,
-          logs: auditLogs,
-        },
-        null,
-        2
-      )
-    );
+    const dataStr =
+      'data:text/json;charset=utf-8,' +
+      encodeURIComponent(
+        JSON.stringify(
+          {
+            application: 'DisputeIQ',
+            mode: getModeName(),
+            exportedAt: new Date().toISOString(),
+            activePolicy: policy,
+            logs: auditLogs,
+          },
+          null,
+          2
+        )
+      );
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute('href', dataStr);
     downloadAnchor.setAttribute('download', `disputeiq-audit-${Date.now()}.json`);
@@ -135,65 +139,67 @@ export default function App() {
   }, []);
 
   // Execute an action on a dispute via the active adapter
-  const handleAction = useCallback(async (disputeId, action, actor) => {
-    // Check local idempotency
-    if (actionedDisputes[disputeId]) {
-      addToast(`Dispute ${disputeId} has already been actioned`, 'error');
-      return;
-    }
-
-    const adapter = getAdapter();
-    const dispute = DISPUTES.find((d) => d.id === disputeId);
-    const evidenceFields = dispute ? [...new Set(dispute.ev.map((e) => e[4]))] : [];
-
-    try {
-      let result;
-      if (action === 'challenge') {
-        result = await adapter.challengeDispute(disputeId, evidenceFields);
-      } else {
-        result = await adapter.acceptDispute(disputeId);
-      }
-
-      if (result.alreadyActioned) {
-        addToast(`Dispute ${disputeId} was already actioned on server`, 'error');
+  const handleAction = useCallback(
+    async (disputeId, action, actor) => {
+      if (actionedDisputes[disputeId]) {
+        addToast(`Dispute ${disputeId} has already been actioned`, 'error');
         return;
       }
 
-      const timestamp = new Date().toISOString();
+      const adapter = getAdapter();
+      const dispute = DISPUTES.find((d) => d.id === disputeId);
+      const evidenceFields = dispute ? [...new Set(dispute.ev.map((e) => e[4]))] : [];
 
-      // Record actioned state
-      setActionedDisputes((prev) => ({
-        ...prev,
-        [disputeId]: { act: action, by: actor, timestamp },
-      }));
+      try {
+        let result;
+        if (action === 'challenge') {
+          result = await adapter.challengeDispute(disputeId, evidenceFields);
+        } else {
+          result = await adapter.acceptDispute(disputeId);
+        }
 
-      // Record in audit log with policy snapshot
-      const newLogEntry = {
-        timestamp,
-        disputeId,
-        action,
-        actor,
-        policySnapshot: { ...policy },
-        simulated: result.dryRun ?? true,
-      };
+        if (result.alreadyActioned) {
+          addToast(`Dispute ${disputeId} was already actioned`, 'error');
+          return;
+        }
 
-      setAuditLogs((prev) => [newLogEntry, ...prev]);
+        const timestamp = new Date().toISOString();
 
-      addToast(
-        `Dispute ${disputeId} ${action}ed by ${actor} (${result.dryRun ? 'dry run' : 'live'})`,
-        'success'
-      );
-    } catch (err) {
-      addToast(`Action failed: ${err.message}`, 'error');
-    }
-  }, [actionedDisputes, policy, addToast]);
+        setActionedDisputes((prev) => ({
+          ...prev,
+          [disputeId]: { act: action, by: actor, timestamp },
+        }));
+
+        const newLogEntry = {
+          timestamp,
+          disputeId,
+          action,
+          actor,
+          policySnapshot: { ...policy },
+          simulated: result.dryRun ?? true,
+        };
+
+        setAuditLogs((prev) => [newLogEntry, ...prev]);
+
+        addToast(
+          `Dispute ${disputeId} ${action}ed by ${actor} (${result.dryRun ? 'dry run' : 'live'})`,
+          'success'
+        );
+      } catch (err) {
+        addToast(`Action failed: ${err.message}`, 'error');
+      }
+    },
+    [actionedDisputes, policy, addToast]
+  );
 
   const selectedDispute = DISPUTES[selectedIndex] || DISPUTES[0];
+  const decision = decide(selectedDispute, policy);
+  const flipHintText = flipHint(selectedDispute, policy);
   const modeName = getModeName();
 
   return (
-    <div className="wrap">
-      {/* Toast notifications container */}
+    <div className="app-container">
+      {/* Toast container */}
       <div className="toast-container" aria-live="assertive">
         {toasts.map((t) => (
           <Toast
@@ -205,53 +211,56 @@ export default function App() {
         ))}
       </div>
 
-      {/* Header */}
-      <header>
-        <div className="logo" aria-label="DisputeIQ brand">
-          <span className="logo-accent">⚡</span> DisputeIQ
+      {/* Sleek App Header */}
+      <header className="app-header">
+        <div className="header-brand">
+          <div className="brand-logo">
+            <span className="logo-icon">⚡</span>
+            <span className="logo-text">DisputeIQ</span>
+          </div>
+          <span className="brand-badge">Agentic Dispute Triage</span>
         </div>
-        <div className="tools">
+
+        <div className="header-actions">
           <span
-            className="chip s"
-            title="All operations run in local simulation mode. No live Airwallex API calls are made."
+            className="chip-simulator"
+            title="Local simulation mode. No live Airwallex API calls are made."
           >
-            {modeName === 'simulator'
-              ? 'Simulator: nothing is sent to Airwallex'
-              : `Mode: ${modeName} (Dry-Run)`}
+            <span className="dot-indicator" aria-hidden="true" />
+            {modeName === 'simulator' ? 'Simulator' : `Mode: ${modeName}`}
           </span>
           <button
             type="button"
-            className="chip"
+            className="btn-icon"
             onClick={toggleTheme}
             aria-label="Toggle dark/light theme"
+            title="Toggle theme"
           >
-            Switch theme
+            ◑
           </button>
           <button
             type="button"
-            className="chip chip-warn"
+            className="btn-header"
             onClick={handleResetDemo}
-            aria-label="Reset demo and clear session actions"
+            title="Reset demo data"
           >
             Reset demo
           </button>
         </div>
       </header>
 
-      {/* Product Lead */}
-      <p className="lead">
-        Fighting a chargeback is a calculated bet. DisputeIQ couples transparent economic policy
-        with evidence analysis so your finance team stays in full control of capital recovery.
-      </p>
-
-      {/* Main Grid: Queue & Policy on Left | Detail, Audit, Backtest on Right */}
-      <main className="grid">
-        <div className="col left-col">
+      {/* Main Workspace Layout */}
+      <main className="main-layout">
+        {/* Left Column: Disputes & Policy */}
+        <aside className="sidebar-col">
           <DisputeQueue
             disputes={DISPUTES}
             policy={policy}
             selectedIndex={selectedIndex}
-            onSelect={setSelectedIndex}
+            onSelect={(idx) => {
+              setSelectedIndex(idx);
+              // If in trace view, keep user on trace view for the newly selected dispute
+            }}
             actionedDisputes={actionedDisputes}
           />
 
@@ -260,35 +269,89 @@ export default function App() {
             onChange={handlePolicyChange}
             onReset={handleResetPolicy}
           />
-        </div>
+        </aside>
 
-        <div className="col right-col">
-          <DisputeDetail
-            dispute={selectedDispute}
-            policy={policy}
-            actioned={actionedDisputes[selectedDispute?.id]}
-            onAction={handleAction}
-          />
+        {/* Right Column: Tabbed Content Pane */}
+        <section className="content-col">
+          {/* Navigation Tabs */}
+          <nav className="tab-nav" aria-label="Dispute views">
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'overview' ? 'active' : ''}`}
+              onClick={() => setActiveTab('overview')}
+            >
+              Overview
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'trace' ? 'active' : ''}`}
+              onClick={() => setActiveTab('trace')}
+            >
+              Decision Trace
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'backtest' ? 'active' : ''}`}
+              onClick={() => setActiveTab('backtest')}
+            >
+              Portfolio Backtest
+            </button>
+            <button
+              type="button"
+              className={`tab-btn ${activeTab === 'audit' ? 'active' : ''}`}
+              onClick={() => setActiveTab('audit')}
+            >
+              Audit Trail
+              {auditLogs.length > 0 && (
+                <span className="tab-counter">{auditLogs.length}</span>
+              )}
+            </button>
+          </nav>
 
-          <AuditLog
-            logs={auditLogs}
-            onExport={handleExportAuditLog}
-            onClear={handleClearAuditLog}
-          />
+          {/* Active Tab View */}
+          <div className="tab-content">
+            {activeTab === 'overview' && (
+              <DisputeDetail
+                dispute={selectedDispute}
+                policy={policy}
+                actioned={actionedDisputes[selectedDispute?.id]}
+                onAction={handleAction}
+                onViewTrace={() => setActiveTab('trace')}
+              />
+            )}
 
-          <BacktestPanel
-            disputes={DISPUTES}
-            policy={policy}
-          />
-        </div>
+            {activeTab === 'trace' && (
+              <DecisionTrace
+                dispute={selectedDispute}
+                trace={decision.trace}
+                policy={policy}
+                flipHintText={flipHintText}
+              />
+            )}
+
+            {activeTab === 'backtest' && (
+              <BacktestPanel
+                disputes={DISPUTES}
+                policy={policy}
+              />
+            )}
+
+            {activeTab === 'audit' && (
+              <AuditLog
+                logs={auditLogs}
+                onExport={handleExportAuditLog}
+                onClear={handleClearAuditLog}
+              />
+            )}
+          </div>
+        </section>
       </main>
 
-      {/* Mandatory Disclaimer Footer */}
-      <footer>
-        <p className="note">
-          DisputeIQ Simulator · Demo data is hand-labelled and illustrative, not real win rates.
-          No live Airwallex credentials or funds are used.
-        </p>
+      {/* Clean, unobtrusive footer */}
+      <footer className="app-footer">
+        <span className="mu text-xs">
+          DisputeIQ Simulator · Demo data is illustrative, not real win rates. No real cardholder funds or credentials used.
+        </span>
       </footer>
     </div>
   );

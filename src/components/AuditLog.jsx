@@ -2,8 +2,7 @@ import React from 'react';
 import { money } from '../logic.js';
 
 /**
- * Session audit log tracking every automated and human decision action.
- * Supports exporting the session audit trail as a formatted JSON document.
+ * Clean session Audit Log panel with JSON export.
  *
  * @param {{
  *   logs: Array<{
@@ -20,56 +19,74 @@ import { money } from '../logic.js';
  */
 export default function AuditLog({ logs = [], onExport, onClear }) {
   return (
-    <section className="card" aria-labelledby="audit-log-heading">
-      <div className="section-header">
-        <h2 id="audit-log-heading">Audit Trail ({logs.length})</h2>
-        <div className="audit-actions">
-          {logs.length > 0 && (
-            <>
-              <button
-                type="button"
-                className="chip"
-                onClick={onExport}
-                title="Download complete audit log as JSON"
-              >
-                Export as JSON
-              </button>
-              <button
-                type="button"
-                className="chip chip-subtle"
-                onClick={onClear}
-                title="Clear current session log"
-              >
-                Clear
-              </button>
-            </>
-          )}
+    <div className="audit-view">
+      <section className="card">
+        <div className="section-header">
+          <div>
+            <h2 className="card-title">Session Audit Trail</h2>
+            <span className="mu card-subtitle">
+              {logs.length} logged decision{logs.length === 1 ? '' : 's'} in current session
+            </span>
+          </div>
+          <div className="audit-btns">
+            {logs.length > 0 && (
+              <>
+                <button
+                  type="button"
+                  className="btn btn-secondary btn-sm"
+                  onClick={onExport}
+                >
+                  Export JSON
+                </button>
+                <button
+                  type="button"
+                  className="btn-link text-muted"
+                  onClick={onClear}
+                >
+                  Clear
+                </button>
+              </>
+            )}
+          </div>
         </div>
-      </div>
 
-      <ul className="log" role="list">
         {logs.length > 0 ? (
-          logs.map((l, idx) => (
-            <li className="mono log-item" key={`${l.timestamp}-${idx}`}>
-              <div className="log-item-header">
-                <span className="log-time">{new Date(l.timestamp).toLocaleTimeString()}</span>
-                <span className="log-id">{l.disputeId}</span>
-                <span className={`log-actor tag ${l.action.toUpperCase()}`}>
-                  {l.action} by {l.actor}
-                </span>
-              </div>
-              <div className="log-item-policy mu">
-                policy: cost {money(l.policySnapshot.cost)}, margin {l.policySnapshot.margin.toFixed(1)}×, limit {money(l.policySnapshot.limit)}, conf {l.policySnapshot.conf}%
-                {l.simulated && ' · [Dry Run]'}
-              </div>
-            </li>
-          ))
+          <div className="audit-table-wrap">
+            <table className="audit-table">
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Dispute ID</th>
+                  <th>Action</th>
+                  <th>Actor</th>
+                  <th>Policy Snapshot</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.map((l, idx) => (
+                  <tr key={`${l.timestamp}-${idx}`}>
+                    <td className="mono mu">{new Date(l.timestamp).toLocaleTimeString()}</td>
+                    <td className="mono font-semibold">{l.disputeId}</td>
+                    <td>
+                      <span className={`tag ${l.action.toUpperCase()}`}>
+                        {l.action}
+                      </span>
+                    </td>
+                    <td className="mu">{l.actor}</td>
+                    <td className="mono mu text-xs">
+                      cost {money(l.policySnapshot.cost)}, {l.policySnapshot.margin.toFixed(1)}×, limit {money(l.policySnapshot.limit)}, conf {l.policySnapshot.conf}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         ) : (
-          <li className="mu log-empty">
-            No actions recorded yet. Run a decision or approve an escalation to record it here.
-          </li>
+          <div className="empty-state mu">
+            <p>No actions logged yet in this session. Run an action to record it here.</p>
+          </div>
         )}
-      </ul>
-    </section>
+      </section>
+    </div>
   );
 }
